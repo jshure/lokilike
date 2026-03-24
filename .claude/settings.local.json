@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(time bash:*)",
+      "Bash(time curl:*)"
     ]
   }
 }

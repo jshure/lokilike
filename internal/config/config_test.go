@@ -35,8 +35,8 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Ingester.ListenAddress != ":3100" {
-		t.Errorf("listen_address = %q, want :3100", cfg.Ingester.ListenAddress)
+	if cfg.Ingester.ListenAddress != ":8082" {
+		t.Errorf("listen_address = %q, want :8082", cfg.Ingester.ListenAddress)
 	}
 	if cfg.Ingester.BatchSizeBytes != 5*1024*1024 {
 		t.Errorf("batch_size = %d, want %d", cfg.Ingester.BatchSizeBytes, 5*1024*1024)

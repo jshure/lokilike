@@ -13,11 +13,11 @@ graph TD
 
     subgraph "sigyn"
         MW[Middleware Stack<br/>Auth · Rate Limit · Body Limit · Access Log]
-        Ingester[Log Ingester API<br/>:3100]
+        Ingester[Log Ingester API<br/>:8082]
         Buffer[Memory Buffer + WAL]
         Broker[Live Tail Broker]
         IdxWriter[Label Index Writer]
-        Exporter[Exporter + Query API<br/>:8080]
+        Exporter[Exporter + Query API<br/>:8081]
         Pool[Worker Pool<br/>Bounded Concurrency]
         Registry[Job Registry]
         QueryEngine[Query Engine]
@@ -184,18 +184,18 @@ This builds the project, starts MinIO + OpenSearch via Docker, launches both ser
 
 ```bash
 make dev-up          # Start MinIO + OpenSearch
-make run-ingester    # Start ingester on :3100 (terminal 1)
-make run-exporter    # Start exporter on :8080 (terminal 2)
+make run-ingester    # Start ingester on :8082 (terminal 1)
+make run-exporter    # Start exporter on :8081 (terminal 2)
 ```
 
-Open the web UI: **http://localhost:8080/ui**
+Open the web UI: **http://localhost:8081/ui**
 
 MinIO console: `http://localhost:9001` (minioadmin/minioadmin)
 
 ### Send Logs
 
 ```bash
-curl -X POST http://localhost:3100/logs \
+curl -X POST http://localhost:8082/logs \
   -H "Content-Type: application/json" \
   -d '{
     "entries": [
@@ -222,8 +222,8 @@ curl -X POST http://localhost:3100/logs \
 For a realistic dataset, use the included generator script. It creates ~5,000 log entries spread across the last 24 hours with 10 services, varied log levels, and randomized labels (region, cluster, version, oncall).
 
 ```bash
-./scripts/gen-test-data.sh                     # default: http://localhost:3100
-./scripts/gen-test-data.sh http://myhost:3100  # custom ingester URL
+./scripts/gen-test-data.sh                     # default: http://localhost:8082
+./scripts/gen-test-data.sh http://myhost:8082  # custom ingester URL
 ```
 
 Entries are sent in batches of 500. The script exits on the first non-202 response.
@@ -232,7 +232,7 @@ Entries are sent in batches of 500. The script exits on the first non-202 respon
 
 ```bash
 # Search by labels and time range
-curl 'http://localhost:8080/query?start=2026-03-23T00:00:00Z&end=2026-03-24T00:00:00Z&query={app="nginx",env="prod"}&level=error&limit=100'
+curl 'http://localhost:8081/query?start=2026-03-23T00:00:00Z&end=2026-03-24T00:00:00Z&query={app="nginx",env="prod"}&level=error&limit=100'
 ```
 
 Response:
@@ -252,7 +252,7 @@ Response:
 
 ### Query Logs (Web UI)
 
-Open **http://localhost:8080/ui** and use:
+Open **http://localhost:8081/ui** and use:
 - Time range pickers for start/end
 - Label query field: `{app="nginx", env="prod"}`
 - Level filter dropdown
@@ -262,7 +262,7 @@ Open **http://localhost:8080/ui** and use:
 
 Connect directly via WebSocket for programmatic tailing:
 ```bash
-wscat -c 'ws://localhost:3100/tail?query={app="nginx"}&level=error'
+wscat -c 'ws://localhost:8082/tail?query={app="nginx"}&level=error'
 ```
 Entries stream as JSON, one per message.
 
@@ -270,7 +270,7 @@ Entries stream as JSON, one per message.
 
 ```bash
 # Start an export job
-curl -X POST http://localhost:8080/export \
+curl -X POST http://localhost:8081/export \
   -H "Content-Type: application/json" \
   -d '{
     "start_time": "2026-03-23T00:00:00Z",
@@ -280,13 +280,13 @@ curl -X POST http://localhost:8080/export \
   }'
 
 # Poll job status
-curl http://localhost:8080/export/<job-id>
+curl http://localhost:8081/export/<job-id>
 
 # List all jobs
-curl http://localhost:8080/export
+curl http://localhost:8081/export
 
 # Cancel a running job
-curl -X DELETE http://localhost:8080/export/<job-id>
+curl -X DELETE http://localhost:8081/export/<job-id>
 ```
 
 ## Label Index
@@ -368,7 +368,7 @@ The ingester includes a pub/sub broker that fans out ingested entries to WebSock
 WS /tail?query={app="nginx"}&level=error
 ```
 
-- Served by the ingester on its listen address (default `:3100`)
+- Served by the ingester on its listen address (default `:8082`)
 - Supports label filtering and level filtering
 - Each subscriber gets a 256-entry buffered channel
 - Slow consumers drop entries (non-blocking)
@@ -392,7 +392,7 @@ Configuration is JSON with `${ENV_VAR}` expansion.
   "debug": false,
   "tenant_id": "",
   "ingester": {
-    "listen_address": ":3100",
+    "listen_address": ":8082",
     "batch_size_bytes": 5242880,
     "batch_time_window_sec": 30,
     "compression_algo": "gzip",
@@ -417,7 +417,7 @@ Configuration is JSON with `${ENV_VAR}` expansion.
     }
   },
   "exporter": {
-    "listen_address": ":8080",
+    "listen_address": ":8081",
     "opensearch": {
       "endpoint": "https://my-cluster.example.com",
       "index_prefix": "exported-logs-",
@@ -426,7 +426,7 @@ Configuration is JSON with `${ENV_VAR}` expansion.
     },
     "default_batch_size": 1000,
     "max_concurrent_jobs": 4,
-    "ingester_url": "ws://localhost:3100"
+    "ingester_url": "ws://localhost:8082"
   },
   "auth": { "enabled": true, "api_keys": ["${API_KEY}"] },
   "metrics": { "enabled": true, "address": ":9090" }
@@ -452,7 +452,7 @@ Configuration is JSON with `${ENV_VAR}` expansion.
 | `storage.s3.retention_days` | Document S3 lifecycle policy TTL | 90 |
 | `storage.index.prefix` | S3 prefix for label index files | `index/` |
 | `exporter.max_concurrent_jobs` | Max parallel export jobs | 4 |
-| `exporter.ingester_url` | Ingester WebSocket URL for live tail in UI | `ws://localhost:3100` |
+| `exporter.ingester_url` | Ingester WebSocket URL for live tail in UI | `ws://localhost:8082` |
 | `auth.enabled` | Require X-API-Key header | `false` |
 | `auth.api_keys` | Valid API keys | `[]` |
 | `metrics.enabled` | Expose Prometheus /metrics | `false` |
@@ -462,7 +462,7 @@ Config is validated on startup — missing required fields or invalid values wil
 
 ## API Reference
 
-### Ingester (default `:3100`)
+### Ingester (default `:8082`)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -470,7 +470,7 @@ Config is validated on startup — missing required fields or invalid values wil
 | `GET` | `/health` | Health check |
 | `WS` | `/tail?query={...}&level=...` | Live tail via WebSocket |
 
-### Exporter (default `:8080`)
+### Exporter (default `:8081`)
 
 | Method | Path | Description |
 |--------|------|-------------|

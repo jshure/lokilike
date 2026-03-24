@@ -104,7 +104,7 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) applyDefaults() {
 	if c.Ingester.ListenAddress == "" {
-		c.Ingester.ListenAddress = ":3100"
+		c.Ingester.ListenAddress = ":8082"
 	}
 	if c.Ingester.BatchSizeBytes <= 0 {
 		c.Ingester.BatchSizeBytes = 5 * 1024 * 1024
@@ -122,7 +122,7 @@ func (c *Config) applyDefaults() {
 		c.Ingester.MaxEntriesPerReq = 10000
 	}
 	if c.Exporter.ListenAddress == "" {
-		c.Exporter.ListenAddress = ":8080"
+		c.Exporter.ListenAddress = ":8081"
 	}
 	if c.Exporter.DefaultBatchSize <= 0 {
 		c.Exporter.DefaultBatchSize = 1000
@@ -140,7 +140,7 @@ func (c *Config) applyDefaults() {
 		c.Storage.Index.Prefix = "index/"
 	}
 	if c.Exporter.IngesterURL == "" {
-		c.Exporter.IngesterURL = "ws://localhost:3100"
+		c.Exporter.IngesterURL = "ws://localhost:8082"
 	}
 }
 

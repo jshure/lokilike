@@ -126,7 +126,6 @@ func TestHandler_DefaultTimestamp(t *testing.T) {
 func TestHandler_BatchFlush(t *testing.T) {
 	mock := &mockFlusher{}
 	buf := newTestBuffer(100, time.Hour, mock)
-	defer buf.Stop()
 	handler := NewHandler(buf, 10000)
 
 	type entry struct {
@@ -151,6 +150,10 @@ func TestHandler_BatchFlush(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", w.Code)
 	}
+
+	// Drain async flush queue before checking.
+	buf.Stop()
+
 	if mock.flushCount() == 0 {
 		t.Fatal("expected at least one flush from small buffer")
 	}

@@ -2,7 +2,7 @@
   "debug": false,
   "tenant_id": "",
   "ingester": {
-    "listen_address": ":3100",
+    "listen_address": ":8082",
     "batch_size_bytes": 5242880,
     "batch_time_window_sec": 30,
     "compression_algo": "gzip",
@@ -31,7 +31,7 @@
     }
   },
   "exporter": {
-    "listen_address": ":8080",
+    "listen_address": ":8081",
     "opensearch": {
       "endpoint": "https://search-my-log-domain.us-west-2.es.amazonaws.com",
       "index_prefix": "exported-logs-",
@@ -40,7 +40,7 @@
     },
     "default_batch_size": 1000,
     "max_concurrent_jobs": 4,
-    "ingester_url": "ws://localhost:3100"
+    "ingester_url": "ws://localhost:8082"
   },
   "auth": {
     "enabled": false,

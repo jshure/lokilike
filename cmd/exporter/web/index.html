@@ -90,9 +90,9 @@ let INGESTER_WS = '';
   try {
     const r = await fetch('/ui/config');
     const c = await r.json();
-    INGESTER_WS = c.ingester_ws_url || 'ws://localhost:3100';
+    INGESTER_WS = c.ingester_ws_url || 'ws://localhost:8082';
   } catch(e) {
-    INGESTER_WS = 'ws://' + location.hostname + ':3100';
+    INGESTER_WS = 'ws://' + location.hostname + ':8082';
   }
   // Default time range: last 1 hour.
   const now = new Date();

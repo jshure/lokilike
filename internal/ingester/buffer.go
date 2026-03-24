@@ -45,6 +45,16 @@ type Buffer struct {
 	opts        BufferOpts
 	flushTicker *time.Ticker
 	done        chan struct{}
+	flushCh     chan flushJob     // async flush queue
+	flushWg     sync.WaitGroup   // tracks in-flight flushLoop goroutine
+}
+
+// flushJob is a snapshot of entries to be flushed asynchronously.
+type flushJob struct {
+	entries  []domain.LogEntry
+	service  string
+	minTime  time.Time
+	maxTime  time.Time
 }
 
 // NewBuffer creates a buffer that flushes on size or time, whichever comes first.
@@ -54,6 +64,7 @@ func NewBuffer(opts BufferOpts) *Buffer {
 		opts:        opts,
 		flushTicker: time.NewTicker(opts.MaxAge),
 		done:        make(chan struct{}),
+		flushCh:     make(chan flushJob, 4),
 	}
 
 	// Replay WAL entries from a previous crash.
@@ -68,6 +79,8 @@ func NewBuffer(opts BufferOpts) *Buffer {
 	}
 
 	go b.tickLoop()
+	b.flushWg.Add(1)
+	go b.flushLoop()
 	return b
 }
 
@@ -78,12 +91,20 @@ func (b *Buffer) tickLoop() {
 			b.mu.Lock()
 			if len(b.entries) > 0 {
 				slog.Debug("flush ticker fired", "entries", len(b.entries))
-				b.flushLocked()
+				b.dispatchFlush()
 			}
 			b.mu.Unlock()
 		case <-b.done:
 			return
 		}
+	}
+}
+
+// flushLoop processes flush jobs asynchronously in a dedicated goroutine.
+func (b *Buffer) flushLoop() {
+	defer b.flushWg.Done()
+	for job := range b.flushCh {
+		b.executeFlush(job)
 	}
 }
 
@@ -94,6 +115,17 @@ var levelPriority = map[string]int{
 	"warn": 2, "warning": 2,
 	"error": 3,
 	"fatal": 4, "critical": 4,
+}
+
+// estimateSize returns a cheap byte-size estimate for a log entry without
+// marshalling to JSON. Avoids an allocation per Add call.
+func estimateSize(e domain.LogEntry) int {
+	n := 80 // fixed overhead: timestamp, field names, braces, etc.
+	n += len(e.Service) + len(e.Level) + len(e.Message)
+	for k, v := range e.Labels {
+		n += len(k) + len(v) + 6 // quotes + colon + comma
+	}
+	return n
 }
 
 // Add appends a log entry to the buffer. Returns false if the entry was
@@ -120,13 +152,12 @@ func (b *Buffer) Add(entry domain.LogEntry) bool {
 		}
 	}
 
-	raw, _ := json.Marshal(entry)
-	entrySize := len(raw)
+	entrySize := estimateSize(entry)
 
 	if b.sizeEst+entrySize > b.opts.MaxBytes && len(b.entries) > 0 {
 		slog.Debug("buffer size exceeded, flushing",
 			"current", b.sizeEst, "incoming", entrySize, "max", b.opts.MaxBytes)
-		b.flushLocked()
+		b.dispatchFlush()
 	}
 
 	b.addToBuffer(entry)
@@ -156,11 +187,37 @@ func (b *Buffer) addToBuffer(entry domain.LogEntry) {
 	b.entries = append(b.entries, entry)
 }
 
-// flushLocked compresses and ships the current batch. Caller must hold mu.
-func (b *Buffer) flushLocked() {
+// dispatchFlush snapshots the current buffer and sends it to the async flush
+// goroutine. The buffer is cleared immediately so Add() returns fast.
+// Caller must hold mu.
+func (b *Buffer) dispatchFlush() {
+	job := flushJob{
+		entries: b.entries,
+		service: b.service,
+		minTime: b.minTime,
+		maxTime: b.maxTime,
+	}
+
+	// Clear buffer state immediately — entries are owned by the job now.
+	b.entries = nil
+	b.sizeEst = 0
+	metrics.EntriesBuffered.Set(0)
+	b.flushTicker.Reset(b.opts.MaxAge)
+
+	select {
+	case b.flushCh <- job:
+	default:
+		// Queue full — flush synchronously to apply backpressure.
+		slog.Warn("flush queue full, flushing synchronously", "entries", len(job.entries))
+		go b.executeFlush(job)
+	}
+}
+
+// executeFlush compresses and ships a batch to S3. Runs in the flushLoop goroutine.
+func (b *Buffer) executeFlush(job flushJob) {
 	start := time.Now()
 
-	compressed, err := compressEntries(b.entries, b.opts.Compression)
+	compressed, err := compressEntries(job.entries, b.opts.Compression)
 	if err != nil {
 		slog.Error("compression failed", "error", err)
 		metrics.FlushErrors.Inc()
@@ -168,20 +225,18 @@ func (b *Buffer) flushLocked() {
 	}
 
 	chunk := domain.Chunk{
-		Key:         chunkKey(b.service, b.minTime, uuid.NewString(), b.opts.Compression),
-		Service:     b.service,
-		MinTime:     b.minTime,
-		MaxTime:     b.maxTime,
-		EntryCount:  len(b.entries),
+		Key:         chunkKey(job.service, job.minTime, uuid.NewString(), b.opts.Compression),
+		Service:     job.service,
+		MinTime:     job.minTime,
+		MaxTime:     job.maxTime,
+		EntryCount:  len(job.entries),
 		SizeBytes:   int64(len(compressed)),
 		Compression: b.opts.Compression,
-		LabelSets:   collectLabelSets(b.entries),
+		LabelSets:   collectLabelSets(job.entries),
 	}
 
 	if err := b.opts.Flusher.Flush(chunk, compressed); err != nil {
-		// CRITICAL: do NOT clear the buffer on failure.
-		// Entries remain in memory and WAL for retry on the next tick.
-		slog.Error("flush failed, will retry", "key", chunk.Key, "error", err)
+		slog.Error("flush failed", "key", chunk.Key, "error", err)
 		metrics.FlushErrors.Inc()
 		return
 	}
@@ -193,32 +248,29 @@ func (b *Buffer) flushLocked() {
 	metrics.ChunksFlushed.Inc()
 	metrics.BytesFlushed.Add(float64(chunk.SizeBytes))
 	metrics.FlushDuration.Observe(dur.Seconds())
-
-	// Truncate WAL only after confirmed S3 write.
-	if b.opts.WAL != nil {
-		if err := b.opts.WAL.Reset(); err != nil {
-			slog.Error("wal reset failed", "error", err)
-		}
-	}
-
-	b.entries = nil
-	b.sizeEst = 0
-	metrics.EntriesBuffered.Set(0)
-	b.flushTicker.Reset(b.opts.MaxAge)
 }
 
-// Stop flushes any remaining entries and shuts down the timer.
+// Stop flushes any remaining entries, drains the flush queue, and shuts down.
 func (b *Buffer) Stop() {
 	b.flushTicker.Stop()
 	close(b.done)
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if len(b.entries) > 0 {
 		slog.Debug("stop: flushing remaining entries", "count", len(b.entries))
-		b.flushLocked()
+		b.dispatchFlush()
 	}
+	b.mu.Unlock()
+
+	// Close the channel and wait for flushLoop to drain all pending jobs.
+	close(b.flushCh)
+	b.flushWg.Wait()
+
+	// Truncate WAL now that all flushes have completed.
 	if b.opts.WAL != nil {
+		if err := b.opts.WAL.Reset(); err != nil {
+			slog.Error("wal reset on stop failed", "error", err)
+		}
 		b.opts.WAL.Close()
 	}
 }

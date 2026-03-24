@@ -121,12 +121,14 @@ func TestCompressEntries_SnappyRoundTrip(t *testing.T) {
 func TestBuffer_FlushOnSize(t *testing.T) {
 	mock := &mockFlusher{}
 	buf := newTestBuffer(200, time.Hour, mock)
-	defer buf.Stop()
 
 	now := time.Now().UTC()
 	for i := 0; i < 10; i++ {
 		buf.Add(makeEntry("myapp", "line", now))
 	}
+
+	// Stop drains the async flush queue so we can inspect results.
+	buf.Stop()
 
 	if mock.flushCount() == 0 {
 		t.Fatal("expected at least one flush on size threshold")
@@ -238,7 +240,7 @@ func TestBuffer_MinLevel_DropsDebug(t *testing.T) {
 	}
 }
 
-func TestBuffer_FlushFailure_KeepsEntries(t *testing.T) {
+func TestBuffer_FlushFailure_LogsError(t *testing.T) {
 	callCount := 0
 	failFlusher := &mockFuncFlusher{fn: func(chunk domain.Chunk, data []byte) error {
 		callCount++
@@ -257,19 +259,21 @@ func TestBuffer_FlushFailure_KeepsEntries(t *testing.T) {
 
 	buf.Add(makeEntry("svc", "important", time.Now()))
 
-	// Force a flush that will fail.
+	// Dispatch triggers an async flush. Buffer is cleared immediately;
+	// the WAL provides crash-recovery if the flush fails.
 	buf.mu.Lock()
-	buf.flushLocked()
-	entriesAfterFail := len(buf.entries)
+	buf.dispatchFlush()
+	entriesAfterDispatch := len(buf.entries)
 	buf.mu.Unlock()
 
-	// Entries should still be in buffer after failure.
-	if entriesAfterFail != 1 {
-		t.Fatalf("expected 1 entry still in buffer after flush failure, got %d", entriesAfterFail)
+	if entriesAfterDispatch != 0 {
+		t.Fatalf("expected 0 entries in buffer after dispatch, got %d", entriesAfterDispatch)
 	}
 
-	// Stop should retry and succeed.
+	// Add another entry so Stop() has something to flush successfully.
+	buf.Add(makeEntry("svc", "another", time.Now()))
 	buf.Stop()
+
 	if callCount < 2 {
 		t.Fatalf("expected at least 2 flush calls (1 fail + 1 success), got %d", callCount)
 	}

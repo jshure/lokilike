@@ -2,7 +2,7 @@
   "debug": true,
   "tenant_id": "",
   "ingester": {
-    "listen_address": ":3100",
+    "listen_address": ":8082",
     "batch_size_bytes": 1048576,
     "batch_time_window_sec": 5,
     "compression_algo": "gzip",
@@ -33,7 +33,7 @@
     }
   },
   "exporter": {
-    "listen_address": ":8080",
+    "listen_address": ":8081",
     "opensearch": {
       "endpoint": "http://localhost:9200",
       "index_prefix": "exported-logs-",
@@ -42,7 +42,7 @@
     },
     "default_batch_size": 500,
     "max_concurrent_jobs": 2,
-    "ingester_url": "ws://localhost:3100"
+    "ingester_url": "ws://localhost:8082"
   },
   "auth": {
     "enabled": false,
