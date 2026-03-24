@@ -157,6 +157,8 @@ sigyn/
 │   ├── storage/s3.go                # S3 client with metrics + raw key support
 │   └── integration/
 │       └── integration_test.go      # Integration tests (MinIO)
+├── scripts/
+│   └── gen-test-data.sh               # Generate ~5k realistic log entries
 ├── config.json                      # Production config template
 ├── config.local.json                # Local dev config (MinIO + OpenSearch)
 ├── docker-compose.yml               # MinIO + OpenSearch for local dev
@@ -214,6 +216,17 @@ curl -X POST http://localhost:3100/logs \
     ]
   }'
 ```
+
+### Generate Test Data
+
+For a realistic dataset, use the included generator script. It creates ~5,000 log entries spread across the last 24 hours with 10 services, varied log levels, and randomized labels (region, cluster, version, oncall).
+
+```bash
+./scripts/gen-test-data.sh                     # default: http://localhost:3100
+./scripts/gen-test-data.sh http://myhost:3100  # custom ingester URL
+```
+
+Entries are sent in batches of 500. The script exits on the first non-202 response.
 
 ### Query Logs (API)
 
