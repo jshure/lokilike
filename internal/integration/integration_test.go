@@ -112,7 +112,7 @@ func TestIntegration_IngestAndReadBack(t *testing.T) {
 	client := newTestS3Client(t, prefix)
 	ctx := context.Background()
 
-	flusher := ingester.NewS3Flusher(client)
+	flusher := ingester.NewS3Flusher(client, nil)
 	buf := ingester.NewBuffer(ingester.BufferOpts{
 		MaxBytes:    512,
 		MaxAge:      5 * time.Second,

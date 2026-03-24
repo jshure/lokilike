@@ -37,7 +37,8 @@ type TLSConfig struct {
 }
 
 type StorageConfig struct {
-	S3 S3Config `json:"s3"`
+	S3    S3Config    `json:"s3"`
+	Index IndexConfig `json:"index"`
 }
 
 type S3Config struct {
@@ -54,6 +55,11 @@ type ExporterConfig struct {
 	OpenSearch        OpenSearchConfig `json:"opensearch"`
 	DefaultBatchSize  int              `json:"default_batch_size"`
 	MaxConcurrentJobs int              `json:"max_concurrent_jobs"`
+	IngesterURL       string           `json:"ingester_url"`
+}
+
+type IndexConfig struct {
+	Prefix string `json:"prefix"`
 }
 
 type OpenSearchConfig struct {
@@ -127,6 +133,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Metrics.Address == "" {
 		c.Metrics.Address = ":9090"
+	}
+	if c.Storage.Index.Prefix == "" {
+		c.Storage.Index.Prefix = "index/"
+	}
+	if c.Exporter.IngesterURL == "" {
+		c.Exporter.IngesterURL = "ws://localhost:8080"
 	}
 }
 

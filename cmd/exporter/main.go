@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,10 +19,15 @@ import (
 	"github.com/joel-shure/lokilike/internal/config"
 	"github.com/joel-shure/lokilike/internal/domain"
 	"github.com/joel-shure/lokilike/internal/exporter"
+	"github.com/joel-shure/lokilike/internal/index"
 	"github.com/joel-shure/lokilike/internal/logger"
 	"github.com/joel-shure/lokilike/internal/middleware"
+	"github.com/joel-shure/lokilike/internal/query"
 	"github.com/joel-shure/lokilike/internal/storage"
 )
+
+//go:embed web
+var webFS embed.FS
 
 func main() {
 	cfgPath := "config.json"
@@ -53,6 +60,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Index store.
+	indexPrefix := cfg.Storage.Index.Prefix
+	if cfg.TenantID != "" {
+		indexPrefix = indexPrefix + cfg.TenantID + "/"
+	}
+	idxStore := index.NewStore(s3Client, indexPrefix)
+
 	osClient, err := exporter.NewOSClient(cfg.Exporter.OpenSearch)
 	if err != nil {
 		slog.Error("failed to init opensearch client", "error", err)
@@ -63,9 +77,12 @@ func main() {
 	registry := exporter.NewRegistry()
 	pool := exporter.NewPool(exp, registry, cfg.Exporter.MaxConcurrentJobs)
 
+	// Query engine.
+	queryEngine := query.NewEngine(s3Client, idxStore)
+
 	mux := http.NewServeMux()
 
-	// POST /export — trigger an export job.
+	// --- Export endpoints ---
 	mux.HandleFunc("/export", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -76,16 +93,12 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-
-	// GET /export/{id} — poll job status.
-	// DELETE /export/{id} — cancel a running job.
 	mux.HandleFunc("/export/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/export/")
 		if id == "" {
 			http.Error(w, "job id required", http.StatusBadRequest)
 			return
 		}
-
 		switch r.Method {
 		case http.MethodGet:
 			handleGetExport(w, id, registry)
@@ -96,12 +109,30 @@ func main() {
 		}
 	})
 
+	// --- Query endpoint ---
+	mux.HandleFunc("/query", func(w http.ResponseWriter, r *http.Request) {
+		handleQuery(w, r, queryEngine)
+	})
+
+	// --- Web UI ---
+	webSub, _ := fs.Sub(webFS, "web")
+	mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(webSub))))
+	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/index.html", http.StatusFound)
+	})
+	mux.HandleFunc("/ui/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"ingester_ws_url": cfg.Exporter.IngesterURL,
+		})
+	})
+
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
-	// Build middleware chain.
+	// Middleware chain.
 	var mws []func(http.Handler) http.Handler
 	mws = append(mws, middleware.AccessLog)
 	if cfg.Auth.Enabled {
@@ -135,12 +166,90 @@ func main() {
 		srv.Shutdown(context.Background())
 	}()
 
-	slog.Info("exporter listening", "address", cfg.Exporter.ListenAddress)
+	slog.Info("exporter listening", "address", cfg.Exporter.ListenAddress, "ui", "http://"+cfg.Exporter.ListenAddress+"/ui")
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		slog.Error("http server error", "error", err)
 		os.Exit(1)
 	}
 }
+
+// --- Query handler ---
+
+func handleQuery(w http.ResponseWriter, r *http.Request, engine *query.Engine) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+
+	startStr := q.Get("start")
+	endStr := q.Get("end")
+	if startStr == "" || endStr == "" {
+		http.Error(w, "start and end query params required (RFC3339)", http.StatusBadRequest)
+		return
+	}
+
+	startTime, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		http.Error(w, "invalid start (RFC3339)", http.StatusBadRequest)
+		return
+	}
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		http.Error(w, "invalid end (RFC3339)", http.StatusBadRequest)
+		return
+	}
+
+	labels, err := query.ParseLabelSelector(q.Get("query"))
+	if err != nil {
+		http.Error(w, "invalid label selector: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	limit := 200
+	if l := q.Get("limit"); l != "" {
+		if _, err := time.ParseDuration("0s"); err == nil { // just reuse stdlib
+		}
+		n := 0
+		for _, c := range l {
+			if c >= '0' && c <= '9' {
+				n = n*10 + int(c-'0')
+			}
+		}
+		if n > 0 && n <= 5000 {
+			limit = n
+		}
+	}
+
+	// Extract service from labels if present (special key).
+	service := ""
+	if s, ok := labels["service"]; ok {
+		service = s
+		delete(labels, "service")
+	}
+
+	req := query.Request{
+		StartTime: startTime,
+		EndTime:   endTime,
+		Service:   service,
+		Labels:    labels,
+		Level:     q.Get("level"),
+		Limit:     limit,
+	}
+
+	resp, err := engine.Run(r.Context(), req)
+	if err != nil {
+		slog.Error("query failed", "error", err)
+		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// --- Export handlers ---
 
 func handleCreateExport(w http.ResponseWriter, r *http.Request, ctx context.Context, pool *exporter.Pool, registry *exporter.Registry) {
 	var req struct {
@@ -198,9 +307,8 @@ func handleGetExport(w http.ResponseWriter, id string, registry *exporter.Regist
 }
 
 func handleListExports(w http.ResponseWriter, registry *exporter.Registry) {
-	jobs := registry.List()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jobs)
+	json.NewEncoder(w).Encode(registry.List())
 }
 
 func handleCancelExport(w http.ResponseWriter, id string, registry *exporter.Registry) {

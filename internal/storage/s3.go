@@ -133,3 +133,39 @@ func (c *S3Client) ListObjects(ctx context.Context, keyPrefix string) ([]string,
 	slog.Debug("s3 list done", "prefix", fullPrefix, "keys", len(keys))
 	return keys, nil
 }
+
+// PutObjectRaw writes data to s3://<bucket>/<fullKey> without prepending the prefix.
+func (c *S3Client) PutObjectRaw(ctx context.Context, fullKey string, data []byte) error {
+	slog.Debug("s3 put raw", "key", fullKey, "bytes", len(data))
+	_, err := c.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(fullKey),
+		Body:   bytes.NewReader(data),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 put %s: %w", fullKey, err)
+	}
+	return nil
+}
+
+// ListObjectsRaw returns all keys under s3://<bucket>/<prefix> without prepending the configured prefix.
+func (c *S3Client) ListObjectsRaw(ctx context.Context, prefix string) ([]string, error) {
+	slog.Debug("s3 list raw", "prefix", prefix)
+	var keys []string
+
+	paginator := s3.NewListObjectsV2Paginator(c.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.bucket),
+		Prefix: aws.String(prefix),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3 list %s: %w", prefix, err)
+		}
+		for _, obj := range page.Contents {
+			keys = append(keys, aws.ToString(obj.Key))
+		}
+	}
+	return keys, nil
+}

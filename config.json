@@ -25,6 +25,9 @@
       "endpoint": "",
       "use_path_style": false,
       "retention_days": 90
+    },
+    "index": {
+      "prefix": "index/"
     }
   },
   "exporter": {
@@ -36,7 +39,8 @@
       "password": "${OS_PASSWORD}"
     },
     "default_batch_size": 1000,
-    "max_concurrent_jobs": 4
+    "max_concurrent_jobs": 4,
+    "ingester_url": "ws://localhost:8080"
   },
   "auth": {
     "enabled": false,

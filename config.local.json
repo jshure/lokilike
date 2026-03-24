@@ -25,6 +25,9 @@
       "endpoint": "http://localhost:9000",
       "use_path_style": true,
       "retention_days": 7
+    },
+    "index": {
+      "prefix": "index/"
     }
   },
   "exporter": {
@@ -36,7 +39,8 @@
       "password": ""
     },
     "default_batch_size": 500,
-    "max_concurrent_jobs": 2
+    "max_concurrent_jobs": 2,
+    "ingester_url": "ws://localhost:8080"
   },
   "auth": {
     "enabled": false,

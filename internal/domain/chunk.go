@@ -40,4 +40,8 @@ type Chunk struct {
 
 	// Compression indicates the algorithm used.
 	Compression CompressionAlgo `json:"compression"`
+
+	// LabelSets are the unique label combinations present in this chunk.
+	// Used by the label index to skip irrelevant chunks during queries.
+	LabelSets []map[string]string `json:"label_sets,omitempty"`
 }

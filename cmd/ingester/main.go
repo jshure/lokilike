@@ -2,20 +2,25 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/joel-shure/lokilike/internal/config"
 	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/lokilike/internal/index"
 	"github.com/joel-shure/lokilike/internal/ingester"
 	"github.com/joel-shure/lokilike/internal/logger"
 	"github.com/joel-shure/lokilike/internal/middleware"
+	"github.com/joel-shure/lokilike/internal/query"
 	"github.com/joel-shure/lokilike/internal/storage"
 )
 
@@ -50,6 +55,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Index store for label-based chunk index.
+	indexPrefix := cfg.Storage.Index.Prefix
+	if cfg.TenantID != "" {
+		indexPrefix = indexPrefix + cfg.TenantID + "/"
+	}
+	idxStore := index.NewStore(s3Client, indexPrefix)
+
 	// WAL setup.
 	var wal *ingester.WAL
 	if cfg.Ingester.WALDir != "" {
@@ -61,13 +73,15 @@ func main() {
 		slog.Info("WAL enabled", "dir", cfg.Ingester.WALDir)
 	}
 
-	flusher := ingester.NewS3Flusher(s3Client)
+	flusher := ingester.NewS3Flusher(s3Client, idxStore)
 	maxAge := time.Duration(cfg.Ingester.BatchTimeWindowSec) * time.Second
 
 	algo := domain.CompressionGzip
 	if cfg.Ingester.CompressionAlgo == "snappy" {
 		algo = domain.CompressionSnappy
 	}
+
+	broker := ingester.NewBroker()
 
 	buf := ingester.NewBuffer(ingester.BufferOpts{
 		MaxBytes:    cfg.Ingester.BatchSizeBytes,
@@ -76,6 +90,7 @@ func main() {
 		WAL:         wal,
 		Compression: algo,
 		MinLevel:    cfg.Ingester.MinLevel,
+		Broker:      broker,
 	})
 
 	handler := ingester.NewHandler(buf, cfg.Ingester.MaxEntriesPerReq)
@@ -86,6 +101,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/tail", tailHandler(broker))
 
 	// Build middleware chain.
 	var mws []func(http.Handler) http.Handler
@@ -141,5 +157,61 @@ func main() {
 	if err != http.ErrServerClosed {
 		slog.Error("http server error", "error", err)
 		os.Exit(1)
+	}
+}
+
+// tailHandler serves a WebSocket that streams live log entries.
+// Query params: query={app="nginx"}&level=error
+func tailHandler(broker *ingester.Broker) http.HandlerFunc {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			slog.Error("websocket upgrade failed", "error", err)
+			return
+		}
+		defer conn.Close()
+
+		// Parse filter from query params.
+		labelQuery, _ := query.ParseLabelSelector(r.URL.Query().Get("query"))
+		levelFilter := strings.ToLower(r.URL.Query().Get("level"))
+
+		filter := func(e domain.LogEntry) bool {
+			if levelFilter != "" && !strings.EqualFold(e.Level, levelFilter) {
+				return false
+			}
+			for k, v := range labelQuery {
+				if e.Labels[k] != v {
+					return false
+				}
+			}
+			return true
+		}
+
+		sub := broker.Subscribe(filter)
+		defer broker.Unsubscribe(sub.ID)
+
+		slog.Info("tail subscriber connected", "id", sub.ID, "labels", labelQuery, "level", levelFilter)
+
+		// Read pump: detect client disconnect.
+		go func() {
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					break
+				}
+			}
+		}()
+
+		for entry := range sub.Ch {
+			data, _ := json.Marshal(entry)
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				break
+			}
+		}
+
+		slog.Info("tail subscriber disconnected", "id", sub.ID)
 	}
 }

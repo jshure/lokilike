@@ -29,6 +29,7 @@ type BufferOpts struct {
 	WAL         *WAL                // nil = no WAL
 	Compression domain.CompressionAlgo
 	MinLevel    string              // drop entries below this level (empty = accept all)
+	Broker      *Broker             // nil = no live tail publishing
 }
 
 // Buffer accumulates LogEntry records in memory and flushes them when
@@ -131,6 +132,12 @@ func (b *Buffer) Add(entry domain.LogEntry) bool {
 	b.addToBuffer(entry)
 	b.sizeEst += entrySize
 	metrics.EntriesBuffered.Set(float64(len(b.entries)))
+
+	// Publish to live-tail subscribers (non-blocking).
+	if b.opts.Broker != nil {
+		b.opts.Broker.Publish(entry)
+	}
+
 	return true
 }
 
@@ -168,6 +175,7 @@ func (b *Buffer) flushLocked() {
 		EntryCount:  len(b.entries),
 		SizeBytes:   int64(len(compressed)),
 		Compression: b.opts.Compression,
+		LabelSets:   collectLabelSets(b.entries),
 	}
 
 	if err := b.opts.Flusher.Flush(chunk, compressed); err != nil {
@@ -241,6 +249,38 @@ func compressEntries(entries []domain.LogEntry, algo domain.CompressionAlgo) ([]
 		}
 		return buf.Bytes(), nil
 	}
+}
+
+// collectLabelSets extracts the unique label combinations from a batch of entries.
+func collectLabelSets(entries []domain.LogEntry) []map[string]string {
+	type key string
+	seen := make(map[key]map[string]string)
+	for _, e := range entries {
+		if len(e.Labels) == 0 {
+			continue
+		}
+		// Build a stable string key for dedup.
+		var sb strings.Builder
+		for k, v := range e.Labels {
+			sb.WriteString(k)
+			sb.WriteByte('=')
+			sb.WriteString(v)
+			sb.WriteByte(',')
+		}
+		k := key(sb.String())
+		if _, ok := seen[k]; !ok {
+			cp := make(map[string]string, len(e.Labels))
+			for lk, lv := range e.Labels {
+				cp[lk] = lv
+			}
+			seen[k] = cp
+		}
+	}
+	sets := make([]map[string]string, 0, len(seen))
+	for _, ls := range seen {
+		sets = append(sets, ls)
+	}
+	return sets
 }
 
 // chunkKey builds a hierarchical S3 key: <service>/<YYYY>/<MM>/<DD>/<unix>-<uuid><ext>
