@@ -12,8 +12,8 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/google/uuid"
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/metrics"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/metrics"
 )
 
 // Flusher is called when a batch is ready to be persisted.

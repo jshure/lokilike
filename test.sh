@@ -6,7 +6,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "=== lokilike test suite ==="
+echo "=== sigyn test suite ==="
 echo ""
 
 # --- Step 1: Build ---
@@ -61,6 +61,6 @@ echo "Coverage by package:"
 go test ./... -count=1 -cover 2>&1 | grep -E "^ok" | while read -r line; do
   pkg=$(echo "$line" | awk '{print $2}')
   cov=$(echo "$line" | grep -o 'coverage: [0-9.]*%' || echo "no test files")
-  short=$(echo "$pkg" | sed 's|github.com/joel-shure/lokilike/||')
+  short=$(echo "$pkg" | sed 's|github.com/joel-shure/sigyn/||')
   printf "  %-40s %s\n" "$short" "$cov"
 done || true

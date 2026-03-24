@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/joel-shure/lokilike/internal/metrics"
+	"github.com/joel-shure/sigyn/internal/metrics"
 )
 
 // Chain applies middlewares in order. The first middleware is the outermost wrapper.

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/metrics"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/metrics"
 )
 
 // Handler exposes the HTTP ingestion endpoint.

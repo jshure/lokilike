@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/metrics"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/metrics"
 )
 
 // WAL is a write-ahead log that persists buffered entries to disk so they

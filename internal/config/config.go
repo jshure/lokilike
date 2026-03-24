@@ -46,6 +46,8 @@ type S3Config struct {
 	Region        string `json:"region"`
 	Prefix        string `json:"prefix"`
 	Endpoint      string `json:"endpoint"`
+	AccessKey     string `json:"access_key"`
+	SecretKey     string `json:"secret_key"`
 	UsePathStyle  bool   `json:"use_path_style"`
 	RetentionDays int    `json:"retention_days"`
 }
@@ -102,7 +104,7 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) applyDefaults() {
 	if c.Ingester.ListenAddress == "" {
-		c.Ingester.ListenAddress = ":8080"
+		c.Ingester.ListenAddress = ":3100"
 	}
 	if c.Ingester.BatchSizeBytes <= 0 {
 		c.Ingester.BatchSizeBytes = 5 * 1024 * 1024
@@ -138,7 +140,7 @@ func (c *Config) applyDefaults() {
 		c.Storage.Index.Prefix = "index/"
 	}
 	if c.Exporter.IngesterURL == "" {
-		c.Exporter.IngesterURL = "ws://localhost:8080"
+		c.Exporter.IngesterURL = "ws://localhost:3100"
 	}
 }
 

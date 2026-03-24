@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/sigyn/internal/domain"
 )
 
 func entry(service, level, msg string, ts time.Time, labels map[string]string) domain.LogEntry {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/sigyn/internal/domain"
 )
 
 func TestHandler_PostSuccess(t *testing.T) {

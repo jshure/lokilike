@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/joel-shure/lokilike/internal/config"
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/ingester"
-	"github.com/joel-shure/lokilike/internal/storage"
+	"github.com/joel-shure/sigyn/internal/config"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/ingester"
+	"github.com/joel-shure/sigyn/internal/storage"
 )
 
 func minioEndpoint() string {
@@ -40,7 +40,7 @@ func newTestS3Client(t *testing.T, prefix string) *storage.S3Client {
 	t.Helper()
 	ctx := context.Background()
 	client, err := storage.NewS3Client(ctx, config.S3Config{
-		Bucket:       "lokilike-dev",
+		Bucket:       "sigyn-dev",
 		Region:       "us-east-1",
 		Prefix:       prefix,
 		Endpoint:     minioEndpoint(),

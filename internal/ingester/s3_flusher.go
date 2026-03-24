@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/index"
-	"github.com/joel-shure/lokilike/internal/retry"
-	"github.com/joel-shure/lokilike/internal/storage"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/index"
+	"github.com/joel-shure/sigyn/internal/retry"
+	"github.com/joel-shure/sigyn/internal/storage"
 )
 
 // S3Flusher implements the Flusher interface by writing chunks to S3 with retries

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== lokilike quickstart ==="
+echo "=== sigyn quickstart ==="
 echo ""
 
 # Check prerequisites
@@ -17,7 +17,7 @@ echo "    Waiting for MinIO..."
 until curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; do sleep 1; done
 echo "    MinIO ready."
 
-echo "[3/5] Starting ingester on :8080..."
+echo "[3/5] Starting ingester on :3100..."
 go run ./cmd/ingester config.local.json &
 INGESTER_PID=$!
 sleep 2
@@ -28,7 +28,7 @@ EXPORTER_PID=$!
 sleep 2
 
 echo "[5/5] Sending sample logs..."
-curl -s -X POST http://localhost:8080/logs \
+curl -s -X POST http://localhost:3100/logs \
   -H "Content-Type: application/json" \
   -d '{
     "entries": [
@@ -41,16 +41,16 @@ curl -s -X POST http://localhost:8080/logs \
   }' | jq . 2>/dev/null || true
 
 echo ""
-echo "=== lokilike is running ==="
+echo "=== sigyn is running ==="
 echo ""
 echo "  Web UI:        http://localhost:8081/ui"
-echo "  Ingester:      http://localhost:8080 (POST /logs, WS /tail)"
+echo "  Ingester:      http://localhost:3100 (POST /logs, WS /tail)"
 echo "  Exporter:      http://localhost:8081 (GET /query, POST /export)"
 echo "  MinIO Console: http://localhost:9001 (minioadmin/minioadmin)"
 echo "  Metrics:       http://localhost:9090/metrics"
 echo ""
 echo "  Try: curl 'http://localhost:8081/query?start=2020-01-01T00:00:00Z&end=2030-01-01T00:00:00Z&limit=10'"
-echo "  Try: wscat -c 'ws://localhost:8080/tail'"
+echo "  Try: wscat -c 'ws://localhost:3100/tail'"
 echo ""
 echo "Press Ctrl+C to stop."
 

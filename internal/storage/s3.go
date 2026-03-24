@@ -13,9 +13,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	appconfig "github.com/joel-shure/lokilike/internal/config"
-	"github.com/joel-shure/lokilike/internal/metrics"
+	appconfig "github.com/joel-shure/sigyn/internal/config"
+	"github.com/joel-shure/sigyn/internal/metrics"
 )
 
 // S3Client wraps the AWS S3 SDK with our bucket/prefix defaults.
@@ -47,6 +48,12 @@ func NewS3Client(ctx context.Context, cfg appconfig.S3Config) (*S3Client, error)
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 		}))
+	}
+
+	if cfg.AccessKey != "" && cfg.SecretKey != "" {
+		opts = append(opts, awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, ""),
+		))
 	}
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)

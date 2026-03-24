@@ -2,7 +2,7 @@
   "debug": false,
   "tenant_id": "",
   "ingester": {
-    "listen_address": ":8080",
+    "listen_address": ":3100",
     "batch_size_bytes": 5242880,
     "batch_time_window_sec": 30,
     "compression_algo": "gzip",
@@ -40,7 +40,7 @@
     },
     "default_batch_size": 1000,
     "max_concurrent_jobs": 4,
-    "ingester_url": "ws://localhost:8080"
+    "ingester_url": "ws://localhost:3100"
   },
   "auth": {
     "enabled": false,

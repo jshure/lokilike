@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/metrics"
-	"github.com/joel-shure/lokilike/internal/retry"
-	"github.com/joel-shure/lokilike/internal/storage"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/metrics"
+	"github.com/joel-shure/sigyn/internal/retry"
+	"github.com/joel-shure/sigyn/internal/storage"
 )
 
 // Exporter reads compressed chunks from S3, filters entries by the job

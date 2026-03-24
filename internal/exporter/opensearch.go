@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/opensearch-project/opensearch-go/v2"
-	"github.com/joel-shure/lokilike/internal/config"
-	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/sigyn/internal/config"
+	"github.com/joel-shure/sigyn/internal/domain"
 )
 
 // OSClient wraps the OpenSearch Go client for bulk indexing.

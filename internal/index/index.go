@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joel-shure/lokilike/internal/storage"
+	"github.com/joel-shure/sigyn/internal/storage"
 )
 
 // ChunkIndex is the minimal metadata written to S3 alongside each chunk.

@@ -16,14 +16,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/joel-shure/lokilike/internal/config"
-	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/exporter"
-	"github.com/joel-shure/lokilike/internal/index"
-	"github.com/joel-shure/lokilike/internal/logger"
-	"github.com/joel-shure/lokilike/internal/middleware"
-	"github.com/joel-shure/lokilike/internal/query"
-	"github.com/joel-shure/lokilike/internal/storage"
+	"github.com/joel-shure/sigyn/internal/config"
+	"github.com/joel-shure/sigyn/internal/domain"
+	"github.com/joel-shure/sigyn/internal/exporter"
+	"github.com/joel-shure/sigyn/internal/index"
+	"github.com/joel-shure/sigyn/internal/logger"
+	"github.com/joel-shure/sigyn/internal/middleware"
+	"github.com/joel-shure/sigyn/internal/query"
+	"github.com/joel-shure/sigyn/internal/storage"
 )
 
 //go:embed web

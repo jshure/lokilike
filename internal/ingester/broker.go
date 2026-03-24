@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/sigyn/internal/domain"
 )
 
 // Broker fans out ingested log entries to live-tail subscribers.

@@ -1,4 +1,4 @@
-# lokilike
+# sigyn
 
 A lightweight, horizontally scalable log aggregation system that uses S3 as its primary backing store. Designed from first principles around the idea that most logs should live in cheap object storage, and only a targeted subset should be fully indexed for deep analysis.
 
@@ -11,9 +11,9 @@ graph TD
         App2[Application 2]
     end
 
-    subgraph "lokilike"
+    subgraph "sigyn"
         MW[Middleware Stack<br/>Auth · Rate Limit · Body Limit · Access Log]
-        Ingester[Log Ingester API<br/>:8080]
+        Ingester[Log Ingester API<br/>:3100]
         Buffer[Memory Buffer + WAL]
         Broker[Live Tail Broker]
         IdxWriter[Label Index Writer]
@@ -113,7 +113,7 @@ sequenceDiagram
 
 ## Design Philosophy
 
-**Store everything, index selectively.** Traditional log systems index every line on ingest, which gets expensive fast. lokilike takes a different approach:
+**Store everything, index selectively.** Traditional log systems index every line on ingest, which gets expensive fast. sigyn takes a different approach:
 
 1. **Ingest cheaply** — logs are buffered in memory (with a WAL for crash safety), compressed, and flushed to S3. A minimal label index is written alongside each chunk. S3 is the source of truth.
 2. **Query directly** — the query engine reads the label index to identify relevant chunks, fetches only those, decompresses, and filters. No external database needed for ad-hoc searches.
@@ -123,7 +123,7 @@ sequenceDiagram
 ## Project Structure
 
 ```
-lokilike/
+sigyn/
 ├── cmd/
 │   ├── ingester/main.go            # Ingestion server + /tail WebSocket
 │   └── exporter/
@@ -182,7 +182,7 @@ This builds the project, starts MinIO + OpenSearch via Docker, launches both ser
 
 ```bash
 make dev-up          # Start MinIO + OpenSearch
-make run-ingester    # Start ingester on :8080 (terminal 1)
+make run-ingester    # Start ingester on :3100 (terminal 1)
 make run-exporter    # Start exporter on :8081 (terminal 2)
 ```
 
@@ -193,7 +193,7 @@ MinIO console: `http://localhost:9001` (minioadmin/minioadmin)
 ### Send Logs
 
 ```bash
-curl -X POST http://localhost:8080/logs \
+curl -X POST http://localhost:3100/logs \
   -H "Content-Type: application/json" \
   -d '{
     "entries": [
@@ -249,7 +249,7 @@ Open **http://localhost:8081/ui** and use:
 
 Connect directly via WebSocket for programmatic tailing:
 ```bash
-wscat -c 'ws://localhost:8080/tail?query={app="nginx"}&level=error'
+wscat -c 'ws://localhost:3100/tail?query={app="nginx"}&level=error'
 ```
 Entries stream as JSON, one per message.
 
@@ -355,7 +355,7 @@ The ingester includes a pub/sub broker that fans out ingested entries to WebSock
 WS /tail?query={app="nginx"}&level=error
 ```
 
-- Served by the ingester on its listen address (default `:8080`)
+- Served by the ingester on its listen address (default `:3100`)
 - Supports label filtering and level filtering
 - Each subscriber gets a 256-entry buffered channel
 - Slow consumers drop entries (non-blocking)
@@ -379,14 +379,14 @@ Configuration is JSON with `${ENV_VAR}` expansion.
   "debug": false,
   "tenant_id": "",
   "ingester": {
-    "listen_address": ":8080",
+    "listen_address": ":3100",
     "batch_size_bytes": 5242880,
     "batch_time_window_sec": 30,
     "compression_algo": "gzip",
     "max_body_bytes": 10485760,
     "max_entries_per_request": 10000,
     "rate_limit_rps": 0,
-    "wal_dir": "/var/lib/lokilike/wal",
+    "wal_dir": "/var/lib/sigyn/wal",
     "tls": { "enabled": false, "cert_file": "", "key_file": "" },
     "min_level": ""
   },
@@ -413,7 +413,7 @@ Configuration is JSON with `${ENV_VAR}` expansion.
     },
     "default_batch_size": 1000,
     "max_concurrent_jobs": 4,
-    "ingester_url": "ws://localhost:8080"
+    "ingester_url": "ws://localhost:3100"
   },
   "auth": { "enabled": true, "api_keys": ["${API_KEY}"] },
   "metrics": { "enabled": true, "address": ":9090" }
@@ -439,7 +439,7 @@ Configuration is JSON with `${ENV_VAR}` expansion.
 | `storage.s3.retention_days` | Document S3 lifecycle policy TTL | 90 |
 | `storage.index.prefix` | S3 prefix for label index files | `index/` |
 | `exporter.max_concurrent_jobs` | Max parallel export jobs | 4 |
-| `exporter.ingester_url` | Ingester WebSocket URL for live tail in UI | `ws://localhost:8080` |
+| `exporter.ingester_url` | Ingester WebSocket URL for live tail in UI | `ws://localhost:3100` |
 | `auth.enabled` | Require X-API-Key header | `false` |
 | `auth.api_keys` | Valid API keys | `[]` |
 | `metrics.enabled` | Expose Prometheus /metrics | `false` |
@@ -449,7 +449,7 @@ Config is validated on startup — missing required fields or invalid values wil
 
 ## API Reference
 
-### Ingester (default `:8080`)
+### Ingester (default `:3100`)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -552,22 +552,22 @@ Enable with `metrics.enabled: true`. Served at `http://<metrics.address>/metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `lokilike_entries_received_total` | Counter | Log entries accepted |
-| `lokilike_entries_dropped_total` | Counter | Entries dropped (by reason) |
-| `lokilike_entries_buffered` | Gauge | Current buffer depth |
-| `lokilike_chunks_flushed_total` | Counter | Chunks written to S3 |
-| `lokilike_flush_errors_total` | Counter | Failed flush attempts |
-| `lokilike_flush_duration_seconds` | Histogram | Compress + upload latency |
-| `lokilike_bytes_flushed_total` | Counter | Compressed bytes to S3 |
-| `lokilike_wal_entries` | Gauge | Current WAL depth |
-| `lokilike_wal_recovered_total` | Counter | Entries recovered on startup |
-| `lokilike_s3_operations_total` | Counter | S3 calls by operation/status |
-| `lokilike_s3_duration_seconds` | Histogram | S3 operation latency |
-| `lokilike_export_jobs_total` | Counter | Export jobs by final status |
-| `lokilike_export_logs_indexed_total` | Counter | Logs sent to OpenSearch |
-| `lokilike_bulk_index_duration_seconds` | Histogram | OpenSearch bulk latency |
-| `lokilike_http_requests_total` | Counter | HTTP requests by method/path/status |
-| `lokilike_http_duration_seconds` | Histogram | HTTP request latency |
+| `sigyn_entries_received_total` | Counter | Log entries accepted |
+| `sigyn_entries_dropped_total` | Counter | Entries dropped (by reason) |
+| `sigyn_entries_buffered` | Gauge | Current buffer depth |
+| `sigyn_chunks_flushed_total` | Counter | Chunks written to S3 |
+| `sigyn_flush_errors_total` | Counter | Failed flush attempts |
+| `sigyn_flush_duration_seconds` | Histogram | Compress + upload latency |
+| `sigyn_bytes_flushed_total` | Counter | Compressed bytes to S3 |
+| `sigyn_wal_entries` | Gauge | Current WAL depth |
+| `sigyn_wal_recovered_total` | Counter | Entries recovered on startup |
+| `sigyn_s3_operations_total` | Counter | S3 calls by operation/status |
+| `sigyn_s3_duration_seconds` | Histogram | S3 operation latency |
+| `sigyn_export_jobs_total` | Counter | Export jobs by final status |
+| `sigyn_export_logs_indexed_total` | Counter | Logs sent to OpenSearch |
+| `sigyn_bulk_index_duration_seconds` | Histogram | OpenSearch bulk latency |
+| `sigyn_http_requests_total` | Counter | HTTP requests by method/path/status |
+| `sigyn_http_duration_seconds` | Histogram | HTTP request latency |
 
 ## Testing
 

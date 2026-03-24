@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/sigyn/internal/domain"
 )
 
 func TestBroker_PublishToSubscriber(t *testing.T) {

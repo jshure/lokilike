@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/joel-shure/lokilike/internal/domain"
+	"github.com/joel-shure/sigyn/internal/domain"
 )
 
 // Registry tracks export jobs in memory and provides per-job cancellation.
