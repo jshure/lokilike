@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	appconfig "github.com/joel-shure/lokilike/internal/config"
-	"github.com/joel-shure/lokilike/internal/logger"
+	"github.com/joel-shure/lokilike/internal/metrics"
 )
 
 // S3Client wraps the AWS S3 SDK with our bucket/prefix defaults.
@@ -22,8 +24,6 @@ type S3Client struct {
 
 // NewS3Client builds an S3Client from our app config.
 func NewS3Client(ctx context.Context, cfg appconfig.S3Config) (*S3Client, error) {
-	log := logger.Get()
-
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
 	}
@@ -34,14 +34,14 @@ func NewS3Client(ctx context.Context, cfg appconfig.S3Config) (*S3Client, error)
 
 	var s3Opts []func(*s3.Options)
 	if cfg.Endpoint != "" {
-		log.Debug("s3: using custom endpoint %s (path_style=%v)", cfg.Endpoint, cfg.UsePathStyle)
+		slog.Debug("s3: custom endpoint", "endpoint", cfg.Endpoint, "path_style", cfg.UsePathStyle)
 		s3Opts = append(s3Opts, func(o *s3.Options) {
 			o.BaseEndpoint = aws.String(cfg.Endpoint)
 			o.UsePathStyle = cfg.UsePathStyle
 		})
 	}
 
-	log.Debug("s3: bucket=%s prefix=%s region=%s", cfg.Bucket, cfg.Prefix, cfg.Region)
+	slog.Debug("s3: initialized", "bucket", cfg.Bucket, "prefix", cfg.Prefix, "region", cfg.Region)
 
 	return &S3Client{
 		client: s3.NewFromConfig(awsCfg, s3Opts...),
@@ -53,48 +53,52 @@ func NewS3Client(ctx context.Context, cfg appconfig.S3Config) (*S3Client, error)
 // PutObject writes data to s3://<bucket>/<prefix><key>.
 func (c *S3Client) PutObject(ctx context.Context, key string, data []byte) (int64, error) {
 	fullKey := c.prefix + key
-	logger.Get().Debug("s3: PutObject %s (%d bytes)", fullKey, len(data))
+	start := time.Now()
+	slog.Debug("s3 put", "key", fullKey, "bytes", len(data))
 
 	_, err := c.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:          aws.String(c.bucket),
-		Key:             aws.String(fullKey),
-		Body:            bytes.NewReader(data),
-		ContentEncoding: aws.String("gzip"),
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(fullKey),
+		Body:   bytes.NewReader(data),
 	})
+
+	dur := time.Since(start)
+	metrics.S3Duration.WithLabelValues("PutObject").Observe(dur.Seconds())
 	if err != nil {
+		metrics.S3Operations.WithLabelValues("PutObject", "error").Inc()
 		return 0, fmt.Errorf("s3 put %s: %w", fullKey, err)
 	}
+	metrics.S3Operations.WithLabelValues("PutObject", "ok").Inc()
 	return int64(len(data)), nil
 }
 
 // GetObject fetches the object at s3://<bucket>/<prefix><key>.
 func (c *S3Client) GetObject(ctx context.Context, key string) ([]byte, error) {
 	fullKey := c.prefix + key
-	logger.Get().Debug("s3: GetObject %s", fullKey)
-
-	out, err := c.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(c.bucket),
-		Key:    aws.String(fullKey),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("s3 get %s: %w", fullKey, err)
-	}
-	defer out.Body.Close()
-	return io.ReadAll(out.Body)
+	return c.getObject(ctx, fullKey)
 }
 
 // GetObjectRaw fetches an object by its full S3 key (no prefix prepended).
-// Use this when you already have the full key from ListObjects.
 func (c *S3Client) GetObjectRaw(ctx context.Context, fullKey string) ([]byte, error) {
-	logger.Get().Debug("s3: GetObjectRaw %s", fullKey)
+	return c.getObject(ctx, fullKey)
+}
+
+func (c *S3Client) getObject(ctx context.Context, fullKey string) ([]byte, error) {
+	start := time.Now()
+	slog.Debug("s3 get", "key", fullKey)
 
 	out, err := c.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(fullKey),
 	})
+
+	dur := time.Since(start)
+	metrics.S3Duration.WithLabelValues("GetObject").Observe(dur.Seconds())
 	if err != nil {
+		metrics.S3Operations.WithLabelValues("GetObject", "error").Inc()
 		return nil, fmt.Errorf("s3 get %s: %w", fullKey, err)
 	}
+	metrics.S3Operations.WithLabelValues("GetObject", "ok").Inc()
 	defer out.Body.Close()
 	return io.ReadAll(out.Body)
 }
@@ -102,7 +106,8 @@ func (c *S3Client) GetObjectRaw(ctx context.Context, fullKey string) ([]byte, er
 // ListObjects returns all keys under s3://<bucket>/<prefix><keyPrefix>.
 func (c *S3Client) ListObjects(ctx context.Context, keyPrefix string) ([]string, error) {
 	fullPrefix := c.prefix + keyPrefix
-	logger.Get().Debug("s3: ListObjects prefix=%s", fullPrefix)
+	start := time.Now()
+	slog.Debug("s3 list", "prefix", fullPrefix)
 
 	var keys []string
 
@@ -114,6 +119,7 @@ func (c *S3Client) ListObjects(ctx context.Context, keyPrefix string) ([]string,
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
+			metrics.S3Operations.WithLabelValues("ListObjects", "error").Inc()
 			return nil, fmt.Errorf("s3 list %s: %w", fullPrefix, err)
 		}
 		for _, obj := range page.Contents {
@@ -121,6 +127,9 @@ func (c *S3Client) ListObjects(ctx context.Context, keyPrefix string) ([]string,
 		}
 	}
 
-	logger.Get().Debug("s3: ListObjects prefix=%s returned %d keys", fullPrefix, len(keys))
+	dur := time.Since(start)
+	metrics.S3Duration.WithLabelValues("ListObjects").Observe(dur.Seconds())
+	metrics.S3Operations.WithLabelValues("ListObjects", "ok").Inc()
+	slog.Debug("s3 list done", "prefix", fullPrefix, "keys", len(keys))
 	return keys, nil
 }

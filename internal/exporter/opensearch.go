@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/opensearch-project/opensearch-go/v2"
 	"github.com/joel-shure/lokilike/internal/config"
 	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/logger"
 )
 
 // OSClient wraps the OpenSearch Go client for bulk indexing.
@@ -40,14 +40,12 @@ func NewOSClient(cfg config.OpenSearchConfig) (*OSClient, error) {
 }
 
 // BulkIndex sends a batch of log entries to OpenSearch using the Bulk API.
-// The index name is derived from the entry timestamp: <prefix>YYYY.MM.DD
 func (c *OSClient) BulkIndex(ctx context.Context, entries []domain.LogEntry) (int, error) {
 	if len(entries) == 0 {
 		return 0, nil
 	}
 
-	log := logger.Get()
-	log.Debug("opensearch: bulk indexing %d entries", len(entries))
+	slog.Debug("opensearch: bulk indexing", "entries", len(entries))
 
 	var buf bytes.Buffer
 	for _, entry := range entries {
@@ -70,7 +68,7 @@ func (c *OSClient) BulkIndex(ctx context.Context, entries []domain.LogEntry) (in
 		buf.WriteByte('\n')
 	}
 
-	log.Debug("opensearch: bulk payload %d bytes", buf.Len())
+	slog.Debug("opensearch: bulk payload", "bytes", buf.Len())
 
 	res, err := c.client.Bulk(
 		strings.NewReader(buf.String()),
@@ -107,7 +105,7 @@ func (c *OSClient) BulkIndex(ctx context.Context, entries []domain.LogEntry) (in
 	}
 
 	if bulkResp.Errors {
-		log.Error("opensearch: bulk response contained errors (%d/%d succeeded)", indexed, len(entries))
+		slog.Error("opensearch: bulk errors", "succeeded", indexed, "total", len(entries))
 	}
 
 	return indexed, nil

@@ -2,25 +2,29 @@ package ingester
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/joel-shure/lokilike/internal/domain"
-	"github.com/joel-shure/lokilike/internal/logger"
+	"github.com/joel-shure/lokilike/internal/metrics"
 )
 
 // Handler exposes the HTTP ingestion endpoint.
 type Handler struct {
-	buffer *Buffer
+	buffer           *Buffer
+	maxEntriesPerReq int
 }
 
 // NewHandler creates the ingestion HTTP handler.
-func NewHandler(buffer *Buffer) *Handler {
-	return &Handler{buffer: buffer}
+func NewHandler(buffer *Buffer, maxEntriesPerReq int) *Handler {
+	if maxEntriesPerReq <= 0 {
+		maxEntriesPerReq = 10000
+	}
+	return &Handler{buffer: buffer, maxEntriesPerReq: maxEntriesPerReq}
 }
 
-// logRequest is the JSON body sent by clients. It may contain a single
-// entry or a batch.
+// logRequest is the JSON body sent by clients.
 type logRequest struct {
 	Entries []domain.LogEntry `json:"entries"`
 }
@@ -43,17 +47,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log := logger.Get()
-	log.Debug("received %d log entries", len(req.Entries))
+	if len(req.Entries) > h.maxEntriesPerReq {
+		http.Error(w, "too many entries in single request", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	slog.Debug("received log entries", "count", len(req.Entries))
 
 	now := time.Now().UTC()
+	accepted := 0
 	for i := range req.Entries {
 		if req.Entries[i].Timestamp.IsZero() {
 			req.Entries[i].Timestamp = now
 		}
-		h.buffer.Add(req.Entries[i])
+		if h.buffer.Add(req.Entries[i]) {
+			accepted++
+		}
 	}
 
+	metrics.EntriesReceived.Add(float64(accepted))
+
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]int{"accepted": len(req.Entries)})
+	json.NewEncoder(w).Encode(map[string]int{"accepted": accepted})
 }

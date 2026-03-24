@@ -1,10 +1,21 @@
 {
   "debug": true,
+  "tenant_id": "",
   "ingester": {
     "listen_address": ":8080",
     "batch_size_bytes": 1048576,
     "batch_time_window_sec": 5,
-    "compression_algo": "gzip"
+    "compression_algo": "gzip",
+    "max_body_bytes": 10485760,
+    "max_entries_per_request": 10000,
+    "rate_limit_rps": 0,
+    "wal_dir": "/tmp/lokilike-wal",
+    "tls": {
+      "enabled": false,
+      "cert_file": "",
+      "key_file": ""
+    },
+    "min_level": ""
   },
   "storage": {
     "s3": {
@@ -12,16 +23,27 @@
       "region": "us-east-1",
       "prefix": "raw_logs/",
       "endpoint": "http://localhost:9000",
-      "use_path_style": true
+      "use_path_style": true,
+      "retention_days": 7
     }
   },
   "exporter": {
+    "listen_address": ":8081",
     "opensearch": {
       "endpoint": "http://localhost:9200",
       "index_prefix": "exported-logs-",
       "username": "",
       "password": ""
     },
-    "default_batch_size": 500
+    "default_batch_size": 500,
+    "max_concurrent_jobs": 2
+  },
+  "auth": {
+    "enabled": false,
+    "api_keys": []
+  },
+  "metrics": {
+    "enabled": true,
+    "address": ":9090"
   }
 }

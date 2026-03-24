@@ -10,11 +10,19 @@ const (
 	CompressionSnappy CompressionAlgo = "snappy"
 )
 
+// FileExtension returns the file extension for this compression algorithm.
+func (a CompressionAlgo) FileExtension() string {
+	switch a {
+	case CompressionSnappy:
+		return ".sz"
+	default:
+		return ".gz"
+	}
+}
+
 // Chunk represents a compressed batch of log entries stored in S3.
-// The S3 key encodes the service, time range, and a unique ID so the
-// exporter can narrow its ListObjects calls by prefix.
 type Chunk struct {
-	// Key is the full S3 object key (e.g. "raw_logs/myapp/2026/03/23/1679558400-1679558430-abc123.gz").
+	// Key is the full S3 object key.
 	Key string `json:"key"`
 
 	// Service groups logs by originating application.

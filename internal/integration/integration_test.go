@@ -89,7 +89,6 @@ func TestIntegration_ListObjects(t *testing.T) {
 		}
 	}
 
-	// List everything.
 	all, err := client.ListObjects(ctx, "")
 	if err != nil {
 		t.Fatalf("ListObjects: %v", err)
@@ -98,7 +97,6 @@ func TestIntegration_ListObjects(t *testing.T) {
 		t.Fatalf("expected 3 keys, got %d: %v", len(all), all)
 	}
 
-	// List with prefix.
 	aOnly, err := client.ListObjects(ctx, "a/")
 	if err != nil {
 		t.Fatalf("ListObjects a/: %v", err)
@@ -115,7 +113,12 @@ func TestIntegration_IngestAndReadBack(t *testing.T) {
 	ctx := context.Background()
 
 	flusher := ingester.NewS3Flusher(client)
-	buf := ingester.NewBuffer(512, 5*time.Second, flusher)
+	buf := ingester.NewBuffer(ingester.BufferOpts{
+		MaxBytes:    512,
+		MaxAge:      5 * time.Second,
+		Flusher:     flusher,
+		Compression: domain.CompressionGzip,
+	})
 
 	now := time.Now().UTC()
 	entries := []domain.LogEntry{
@@ -128,7 +131,6 @@ func TestIntegration_IngestAndReadBack(t *testing.T) {
 	}
 	buf.Stop()
 
-	// Verify chunks exist in MinIO.
 	keys, err := client.ListObjects(ctx, "")
 	if err != nil {
 		t.Fatalf("ListObjects: %v", err)
@@ -137,7 +139,6 @@ func TestIntegration_IngestAndReadBack(t *testing.T) {
 		t.Fatal("expected at least one chunk in S3")
 	}
 
-	// Read back and decompress.
 	var allEntries []domain.LogEntry
 	for _, key := range keys {
 		data, err := client.GetObjectRaw(ctx, key)
@@ -163,7 +164,6 @@ func TestIntegration_IngestAndReadBack(t *testing.T) {
 		t.Fatalf("expected %d entries, got %d", len(entries), len(allEntries))
 	}
 
-	// Verify messages match.
 	messages := map[string]bool{}
 	for _, e := range allEntries {
 		messages[e.Message] = true
