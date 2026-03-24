@@ -1,0 +1,27 @@
+{
+  "debug": false,
+  "ingester": {
+    "listen_address": ":8080",
+    "batch_size_bytes": 5242880,
+    "batch_time_window_sec": 30,
+    "compression_algo": "gzip"
+  },
+  "storage": {
+    "s3": {
+      "bucket": "agent-vibe-log-archive",
+      "region": "us-west-2",
+      "prefix": "raw_logs/",
+      "endpoint": "",
+      "use_path_style": false
+    }
+  },
+  "exporter": {
+    "opensearch": {
+      "endpoint": "https://search-my-log-domain.us-west-2.es.amazonaws.com",
+      "index_prefix": "exported-logs-",
+      "username": "${OS_USERNAME}",
+      "password": "${OS_PASSWORD}"
+    },
+    "default_batch_size": 1000
+  }
+}

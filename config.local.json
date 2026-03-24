@@ -1,0 +1,27 @@
+{
+  "debug": true,
+  "ingester": {
+    "listen_address": ":8080",
+    "batch_size_bytes": 1048576,
+    "batch_time_window_sec": 5,
+    "compression_algo": "gzip"
+  },
+  "storage": {
+    "s3": {
+      "bucket": "lokilike-dev",
+      "region": "us-east-1",
+      "prefix": "raw_logs/",
+      "endpoint": "http://localhost:9000",
+      "use_path_style": true
+    }
+  },
+  "exporter": {
+    "opensearch": {
+      "endpoint": "http://localhost:9200",
+      "index_prefix": "exported-logs-",
+      "username": "",
+      "password": ""
+    },
+    "default_batch_size": 500
+  }
+}
